@@ -1,0 +1,9 @@
+--extra-index-url https://download.pytorch.org/whl/cu130
+torch==2.10.0+cu130
+torchvision==0.25.0+cu130
+torchaudio==2.10.0+cu130
+vllm>=0.4.0
+transformers>=4.40.0
+pandas>=2.0.0
+rich>=13.0.0
+rich-argparse>=1.0.0

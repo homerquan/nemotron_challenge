@@ -1,0 +1,4 @@
+datasets>=2.16.1
+pandas>=2.0.0
+rich>=13.0.0
+rich-argparse>=1.0.0
