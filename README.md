@@ -2,6 +2,8 @@
 
 This project contains the complete pipeline for fine-tuning the **Nemotron-3-Nano** model to enhance its mathematical reasoning capabilities. The repository implements a two-stage reasoning reinforcement learning pipeline based on a Process Reward Model (PRM) and Group Relative Policy Optimization (GRPO).
 
+![Result 0.51](./rank.png)
+
 ## Architecture Overview
 
 1. **Supervised Fine-Tuning (SFT)**: Baselines the model to adopt a Chain-of-Thought (CoT) format ending with `\boxed{}`.
