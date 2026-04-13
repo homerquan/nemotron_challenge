@@ -1,0 +1,37 @@
+Here is the exact final command I used to run the RL training script:                                                                                                                                                                   
+     cd /home/ubuntu && source .venv/bin/activate && \                                                                                                                                                                                       
+     export UNSLOTH_COMPILE_OVERWRITE=0 && \                                                                                                                                                                                                 
+     python /home/ubuntu/scripts/training/train_rl.py \                                                                                                                                                                                      
+         --sft_adapter /home/ubuntu/nemotron-reasoning-lora-new \                                                                                                                                                                            
+         --prm_adapter /home/ubuntu/nemotron-generative-prm-lora-new \                                                                                                                                                                       
+         --output_dir /home/ubuntu/nemotron-rl-grpo-new \                                                                                                                                                                                    
+         --batch_size 1 \                                                                                                                                                                                                                    
+         --max_steps 5                                                                                                                                                                                                                       
+                                                                                                                                                                                                                                             
+     (Note: We exported UNSLOTH_COMPILE_OVERWRITE=0 beforehand to prevent Unsloth from aggressively rewriting the chunked_hidden_states_selective_log_softmax function with bugged kernels                                                   
+     incompatible with the Nemotron AutoModel graph mapping).                                                                                                                                                                                
+                                                                                                                                                                                                                                             
+     Where are the LoRA adapters saved?                                                                                                                                                                                                      
+                                                                                                                                                                                                                                             
+     Because we removed the logic that duplicates the folders into a -final directory at the very end of the training scripts, the RL adapter (along with all its state and checkpoints) is                                                  
+     safely saved natively to the path defined in --output_dir:                                                                                                                                                                              
+                                                                                                                                                                                                                                             
+     /home/ubuntu/nemotron-rl-grpo-new                                                                                                                                                                                                       
+                                                                                                                                                                                                                                             
+     Inside this directory, you will find:                                                                                                                                                                                                   
+     * adapter_model.safetensors (The trained RL LoRA weights)                                                                                                                                                                               
+     * adapter_config.json (The PEFT configuration)                                                                                                                                                                                          
+     * accelerator_state_interrupt/ (The saved Accelerate backup state in case of a crash or cancel)                                                                                                                                         
+     * trainer_state.json (HuggingFace trainer metrics)                                                                                                                                                                                      
+                                                                                                                                                                                                                                             
+     All local and remote scripts are cleanly synced. Is there anything else you want to tinker with or explore in the sandbox?
+
+eval command:
+
+cd /home/ubuntu/scripts/evaluation && \
+source venv/bin/activate && \
+python eval_vllm_lora.py \
+    --lora_path /home/ubuntu/nemotron-rl-grpo-new \
+    --input_csv /home/ubuntu/eval_datasets/test.csv \
+    --output_csv /home/ubuntu/eval_datasets/lora_vllm_submission_rl.csv \
+    --max_tokens 1500

@@ -4,11 +4,15 @@ import torch
 import re
 from datasets import load_dataset
 
-# Import Unsloth patches FIRST
-from unsloth import PatchDPOTrainer
-PatchDPOTrainer() # Unsloth supports DPO/ORPO but GRPO is tricky with PEFT multiple adapters.
+from unsloth import FastLanguageModel, is_bfloat16_supported
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+# Disable Unsloth's GRPO patch to avoid TorchDynamo tensor shape conflicts on Nemotron
+import sys
+if "trl.trainer.grpo_trainer" in sys.modules:
+    del sys.modules["trl.trainer.grpo_trainer"]
+if "trl.trainer" in sys.modules:
+    del sys.modules["trl.trainer"]
+
 from transformers.trainer_utils import get_last_checkpoint
 from peft import PeftModel
 from trl import GRPOTrainer, GRPOConfig
@@ -25,11 +29,11 @@ def parse_args():
         formatter_class=RichHelpFormatter
     )
     parser.add_argument("--base_model", type=str, default="/home/ubuntu/nemotron_model", help="Path to base model")
-    parser.add_argument("--sft_adapter", type=str, default="./nemotron-reasoning-lora-final", help="Path to SFT adapter")
-    parser.add_argument("--prm_adapter", type=str, default="./nemotron-generative-prm-lora-final", help="Path to PRM adapter")
+    parser.add_argument("--sft_adapter", type=str, default="/home/ubuntu/nemotron-reasoning-lora-new", help="Path to SFT adapter")
+    parser.add_argument("--prm_adapter", type=str, default="/home/ubuntu/nemotron-generative-prm-lora-new", help="Path to PRM adapter")
     parser.add_argument("--output_dir", type=str, default="./nemotron-rl-grpo", help="Output directory")
-    parser.add_argument("--max_steps", type=int, default=2, help="Max steps (keep low for demo)")
-    parser.add_argument("--batch_size", type=int, default=2, help="Per device batch size")
+    parser.add_argument("--max_steps", type=int, default=5, help="Max steps (keep low for demo)")
+    parser.add_argument("--batch_size", type=int, default=1, help="Per device batch size")
     parser.add_argument("--samples", type=int, default=1000, help="Number of MetaMathQA samples for RL")
     return parser.parse_args()
 
@@ -52,29 +56,26 @@ def main():
     accelerator = Accelerator()
 
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
-        task1 = progress.add_task("[cyan]Loading base model and tokenizer...", total=None)
-        tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
-        tokenizer.pad_token = tokenizer.eos_token
-
-        # Unsloth is best for SFT/DPO. GRPO with multiple active LoRA adapters is complex. 
-        # We stick to standard AutoModel for GRPO to ensure multi-adapter support works as before,
-        # but Unsloth could be used if single adapter. The prompt asked for Unsloth, but to keep the 
-        # PRM multi-adapter logic working, we will use transformers+PEFT for the RL script, or we 
-        # can try unsloth's `FastLanguageModel.from_pretrained`. 
-        # For safety, since GRPO needs multi-adapter, we use standard HuggingFace:
-        model = AutoModelForCausalLM.from_pretrained(
-            args.base_model, trust_remote_code=True, torch_dtype=torch.bfloat16, device_map="auto"
-        )
-        progress.update(task1, completed=1, description="[green]Base model loaded!")
+        task1 = progress.add_task("[cyan]Loading SFT model and tokenizer...", total=None)
         
-        task2 = progress.add_task("[cyan]Loading adapters...", total=None)
+        # Load the base model pre-applied with the SFT adapter using Unsloth
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=args.sft_adapter,
+            max_seq_length=1024,
+            dtype=torch.bfloat16 if is_bfloat16_supported() else torch.float16,
+            load_in_4bit=False,
+            trust_remote_code=True,
+        )
+        tokenizer.pad_token = tokenizer.eos_token
+        progress.update(task1, completed=1, description="[green]SFT model loaded!")
+        
+        task2 = progress.add_task("[cyan]Loading PRM adapter...", total=None)
         try:
-            model = PeftModel.from_pretrained(model, args.sft_adapter, adapter_name="default", is_trainable=True)
             model.load_adapter(args.prm_adapter, adapter_name="prm")
             model.set_adapter("default")
-            progress.update(task2, completed=1, description="[green]SFT and PRM adapters loaded!")
+            progress.update(task2, completed=1, description="[green]PRM adapter loaded!")
         except Exception as e:
-            progress.update(task2, description=f"[red]Error loading adapters: {e}")
+            progress.update(task2, description=f"[red]Error loading PRM adapter: {e}")
             console.print("[yellow]Make sure you have run the SFT and PRM training scripts first.")
             return
 
@@ -120,8 +121,8 @@ def main():
 
     training_args = GRPOConfig(
         output_dir=args.output_dir, per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=1, learning_rate=1e-5, logging_steps=1,
-        max_steps=args.max_steps, save_steps=50, fp16=False, bf16=True,
+        gradient_accumulation_steps=2, learning_rate=1e-5, logging_steps=1,
+        max_steps=args.max_steps, save_steps=50, fp16=not is_bfloat16_supported(), bf16=is_bfloat16_supported(),
         optim="paged_adamw_8bit", lr_scheduler_type="cosine", report_to="none",
         max_completion_length=256, num_generations=2
     )
